@@ -2,6 +2,8 @@
 
 A private, two-person YouTube room with shared playback and text chat. The original planning document is preserved in `WATCH_TOGETHER_PRD.md`; this implementation deliberately supports **YouTube only**.
 
+The laptop installation is now published at **https://watch.chaigallery.in** through a named Cloudflare Tunnel. Both the app and tunnel are configured to start at this Windows user's sign-in. The laptop must remain awake and online. See [TUNNEL_SETUP.md](./TUNNEL_SETUP.md) for setup, start/stop controls, credential handling and verification limits.
+
 ## Run locally
 
 Requires Node.js 22.12+ (tested on Node 24).

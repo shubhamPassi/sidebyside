@@ -52,5 +52,5 @@ export function createApp(options = {}) {
   return { app, server, rooms, close: () => { clearInterval(cleanup); for (const ws of wss.clients) ws.terminate(); wss.close(); server.close(); } };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { server } = createApp(); server.listen(Number(process.env.PORT) || 3001, '0.0.0.0', () => console.log(`Side by Side listening on http://localhost:${process.env.PORT || 3001}`));
+  const { server } = createApp(); server.listen(Number(process.env.PORT) || 3001, process.env.BIND_HOST || '0.0.0.0', () => console.log(`Side by Side listening on http://localhost:${process.env.PORT || 3001}`));
 }

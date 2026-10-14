@@ -5,7 +5,7 @@ Tested on Windows, Node.js 24.14.1, installed Google Chrome, against the product
 | Check | Result |
 | --- | --- |
 | `npm run build` | Passed: TypeScript check and Vite production bundle |
-| `npm test` | 13 passed, 0 failed |
+| `npm test` | 14 passed, 0 failed, including the added Windows supervisor test |
 | `npm run test:ui` | 1 comprehensive browser scenario passed, 0 failed; two independent browser contexts plus a third capacity check |
 | `npm audit --omit=dev` | 0 vulnerabilities reported |
 | Real YouTube smoke check | Official API loaded; player activated and played; reported playhead 0:04, duration 22:23; 0 page errors |
@@ -23,8 +23,18 @@ Browser screenshots are in `test-results/landing.png`, `room-empty.png`, `room-a
 
 - Playback between two physical devices on different networks, real pairwise drift, latency/jitter profiles, and a 30–60 minute session.
 - Different ads, ad-to-content transitions, restricted videos, region/account differences, background throttling, sleep/wake, and real mobile autoplay/fullscreen behavior.
-- Any public hosting or secure tunnel configuration; none was deployed.
+- Actual Windows reboot/sign-in behavior (the installed hidden startup launcher was exercised directly).
 
 The app deliberately uses manual drift recovery instead of periodic corrective seeks, because the documented player API does not provide reliable ad lifecycle signals. Native seek detection is a position-discontinuity heuristic after activation; it is not a documented YouTube seek event and requires real-session validation around ads. Wait + Ready + Resync remains the recovery path.
 
 Rooms are ephemeral on a single long-running server; restarting erases rooms/history. Guest admission is direct through the private invite; there is no admission queue or ownership transfer. Production scaling and durable storage are not implemented.
+
+## Named tunnel deployment validation
+
+On 14 October 2026 the app was published at **https://watch.chaigallery.in** through a Cloudflare named tunnel from this laptop. The connector reported Healthy and the published application route points to `http://127.0.0.1:3001`. The app was confirmed listening only on 127.0.0.1. Existing domain records were inspected before adding the separate watch CNAME.
+
+`node scripts/verify-public.mjs https://watch.chaigallery.in` passed checks for public HTTPS health, valid-origin creation, invalid-origin rejection, two authenticated WSS clients, joining, seek/play commands, room chat, disconnect/reconnect snapshot recovery and removal of the temporary verification room. These are actual requests through Cloudflare, not mocked network responses.
+
+Chrome on the public domain loaded the official YouTube player with `origin=https://watch.chaigallery.in`, activated it, played approximately 35 seconds of the sample video and paused it. A screenshot is retained locally at `artifacts/public-watch.jpg`. This remains a one-device playback check; it does not prove real two-device drift or ad synchronization.
+
+Startup was installed for the current Windows user, using a hidden WScript launcher in the user's Startup folder. After a clean supervisor stop, invoking that installed launcher restored both Node and cloudflared and local health passed. The scoped token file's permissions showed only the current Windows user, and Git confirmed `.local/tunnel-token.txt` and `.local/watch-config.json` are ignored. The real OS sign-in event was not exercised by logging the user out or rebooting.
