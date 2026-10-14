@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Side by Side — two screens, one shared moment</title>
+  <rect width="64" height="64" rx="16" fill="#283629"/>
+  <rect x="9" y="13" width="21" height="32" rx="6" fill="#c5eaa4"/>
+  <rect x="34" y="13" width="21" height="32" rx="6" fill="#c5eaa4"/>
+  <path d="M16 23v12l9-6zM41 23v12l9-6z" fill="#283629"/>
+  <path d="M20 51h24" stroke="#7f9b6c" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="20" cy="51" r="3" fill="#c5eaa4"/>
+  <circle cx="44" cy="51" r="3" fill="#c5eaa4"/>
+</svg>
