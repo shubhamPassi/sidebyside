@@ -36,3 +36,19 @@ test('private room UI, shared player, chat, waiting, reconnect and late join',as
   await a.getByRole('button',{name:'Room options'}).click();await a.getByRole('button',{name:'Remove guest',exact:true}).click();await expect(b.getByRole('alert')).toContainText('removed');
  }finally{await aCtx.close();await bCtx.close();await cCtx.close();}
 });
+
+test('iPhone path confirms actual playback and stays playing beyond 15 seconds without automatic seeks',async({browser})=>{
+ test.setTimeout(60000);
+ const desktop=await browser.newContext();const phone=await browser.newContext({userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 CriOS/140.0.0.0 Mobile/15E148 Safari/604.1',viewport:{width:390,height:844}});
+ try {
+  for(const ctx of [desktop,phone])await ctx.route('https://www.youtube.com/iframe_api',route=>route.fulfill({contentType:'application/javascript',body:mockYouTube}));
+  const a=await desktop.newPage();const b=await phone.newPage();await a.goto('/');await a.getByLabel('What should we call you?').fill('Laptop');await a.getByRole('button',{name:'Create a private room'}).click();await a.getByText('Room details & invitation').click();const invite=await a.getByLabel('Private invitation — share only with your friend').inputValue();
+  await a.getByLabel('YouTube video URL').fill('https://youtu.be/M7lc1UVf-VE');await a.getByRole('button',{name:'Load video',exact:true}).click();await a.getByRole('button',{name:'Activate & ready'}).click();
+  await b.goto(invite);await b.getByLabel('What should we call you?').fill('iPhone');await b.getByRole('button',{name:'Join the room'}).click();await expect(b.getByText(/Automatic catch-up seeks are disabled|automatic catch-up seeks are disabled/)).toBeVisible();
+  await b.evaluate(()=>window.testStartupDelay=1000);await b.getByRole('button',{name:'Activate & ready'}).click();await expect(a.getByRole('button',{name:'Play together'})).toBeDisabled();await expect(a.getByRole('button',{name:'Play together'})).toBeEnabled({timeout:5000});
+  await b.evaluate(()=>{window.testPlayer.seekCalls=[];window.testStartupDelay=1000});await a.getByRole('button',{name:'Play together'}).click();
+  await b.waitForTimeout(18000);
+  expect(await a.evaluate(()=>window.testPlayer.getPlayerState())).toBe(1);expect(await b.evaluate(()=>window.testPlayer.getPlayerState())).toBe(1);expect(await b.evaluate(()=>window.testPlayer.seekCalls.length)).toBe(0);
+  const diag=await b.evaluate(()=>window.__watchDiagnostics());expect(diag.version).toBe('iphone-readiness-1');expect(diag.events.some(e=>e.event==='sample')).toBe(true);expect(JSON.stringify(diag)).not.toMatch(/credential|invite|memberId/);
+ } finally {await desktop.close();await phone.close();}
+});

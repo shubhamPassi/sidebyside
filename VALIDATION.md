@@ -6,7 +6,7 @@ Tested on Windows, Node.js 24.14.1, installed Google Chrome, against the product
 | --- | --- |
 | `npm run build` | Passed: TypeScript check and Vite production bundle |
 | `npm test` | 17 passed, 0 failed, including Windows supervisor and startup-delay recovery tests |
-| `npm run test:ui` | 1 comprehensive browser scenario passed, 0 failed; two independent browser contexts plus a third capacity check |
+| `npm run test:ui` | 2 browser scenarios passed, 0 failed: comprehensive desktop flow and an iPhone user-agent path with delayed startup and sustained playback |
 | `npm audit --omit=dev` | 0 vulnerabilities reported |
 | Real YouTube smoke check | Official API loaded; player activated and played; reported playhead 0:04, duration 22:23; 0 page errors |
 | Desktop/mobile visual review | Reviewed desktop room, active real-player room and 390px-wide room; mobile test confirms no horizontal page overflow |
@@ -38,6 +38,14 @@ The browser regression introduces a full 1,000 ms startup delay into the second 
 A subsequent device report revealed another missing behavior in the test double: an IFrame seek can leave playback paused, including through an asynchronous pause callback during the suppression window. Startup correction now issues play after seeking, with one revision-guarded follow-up 250 ms later only if the player is still paused/cued. A new room revision, source change, wait, disconnection or lack of readiness prevents that follow-up. There is no repeated seek/retry loop. If the player remains paused after suppression, it reports needs-interaction and pauses the shared room rather than leaving only that viewer stopped.
 
 The browser regression now simulates both a one-second startup delay and a delayed pause after the corrective seek, verifies both players return to playing, and checks exactly one corrective seek. It also simulates a paused player with no state event during suppression; the room pauses for both viewers and reactivation restores readiness. Unit/integration tests remain 17 passing. The user's physical-device reproduction remains to be retried after both clients reload.
+
+### iPhone readiness and conservative playback
+
+After a report of a second-device pause after 10–15 seconds, the device was identified as iPhone Chrome. The root cause has not been established from actual phone traces. Readiness now waits for a confirmed player Playing event instead of the earlier immediate play/pause call sequence. The iPhone/iPad branch disables automatic startup seeks and native seek-discontinuity inference, preserves explicit shared-slider seeking and manual resync, and displays direct-player activation guidance. Desktop native seek detection also skips hidden pages and long sampling gaps. This prioritizes stable phone playback over automatic drift correction.
+
+A second browser scenario uses an iPhone user-agent in Chromium with the simulated player (it is **not real iOS/WebKit**). It verifies that a one-second activation delay keeps the room unready until actual playback is reported, then both players stay playing for an 18-second observation window with no automatic phone seeks. Both browser scenarios, all 17 unit/integration tests and the build passed. The public bundle was updated. Physical-iPhone validation still requires a retry and, if the pause persists, its newly available local diagnostics trace.
+
+Diagnostics retain only 180 local events and are copied on demand. They include timing/state/revision/status/socket-close information, browser user-agent and page visibility; they exclude credentials, invitations, nicknames and chat. No trace is automatically sent to the server.
 
 Rooms are ephemeral on a single long-running server; restarting erases rooms/history. Guest admission is direct through the private invite; there is no admission queue or ownership transfer. Production scaling and durable storage are not implemented.
 
