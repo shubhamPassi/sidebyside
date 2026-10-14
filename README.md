@@ -34,6 +34,7 @@ The Dockerfile is an optional deployment package. Use one instance; rooms are in
 
 ## Controls and recovery
 
+- A shared playback revision now gets one bounded startup catch-up after the player reports stable progress. This compensates for a slower device taking extra time to start YouTube after the command arrives. It allows a 350 ms dead band, stops after one check/correction, expires after 12 seconds, and skips changed durations, waits/autoplay blocks and large ambiguous drift. It is not a continuous drift corrector or an ad-sync guarantee.
 - Either viewer can play, pause, seek with the shared slider / time input, change the video, or chat. Original YouTube controls, volume, captions, branding, and ads remain available; volume and captions are personal. Native play/pause/seek are reconciled after player activation. Ready starts no shared playback by itself.
 - “Wait for me” pauses the room and marks that person unready. Confirmed buffering (1.5 seconds), autoplay blocks, errors, and disconnections also pause the room. After recovery, press Ready and deliberately resume; the app never silently resumes an intentional pause.
 - “Resync my player” fetches a fresh server snapshot and aligns only your player. Reconnect fetches current room state and chat before controls enable. Existing activated players restore position; refreshing needs activation again.

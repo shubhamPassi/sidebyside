@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Room, Player } from './types';
 import { expectedPosition } from './sync';
+import { StartupAlignment } from './startupAlignment';
 let api: Promise<void> | undefined;
 function loadApi() { if (window.YT?.Player) return Promise.resolve(); return api ||= new Promise((resolve, reject) => { window.onYouTubeIframeAPIReady = resolve; const script = document.createElement('script'); script.src = 'https://www.youtube.com/iframe_api'; script.onerror = () => { api = undefined; reject(new Error('YouTube could not load. Check your internet connection and content blockers.')); }; document.head.append(script); }); }
 type Props = { room: Room; memberId: string; online: boolean; offset: React.RefObject<number>; force: number; send: (msg: Record<string, unknown>) => void; onTime: (time: number, duration: number) => void };
 export default function YouTube(props: Props) {
   const container = useRef<HTMLDivElement>(null); const player = useRef<Player | null>(null); const latest = useRef(props); latest.current = props;
   const suppression = useRef(0); const activated = useRef(false); const ready = useRef(false); const applied = useRef(''); const lastSample = useRef({ time: 0, at: 0 }); const stall = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const startup = useRef(new StartupAlignment());
   const [loaded, setLoaded] = useState(false); const [issue, setIssue] = useState(''); const [needsClick, setNeedsClick] = useState(true); const [drift, setDrift] = useState(0);
   function status(value: string) { const p = latest.current; if (p.online) p.send({ type: 'status', status: value, sourceRevision: p.room.sourceRevision }); }
   function command(action: string, position?: number) { const p = latest.current; p.send({ type: 'control', action, position, revision: p.room.timeline.revision, sourceRevision: p.room.sourceRevision }); }
@@ -15,26 +17,28 @@ export default function YouTube(props: Props) {
     const key = `${p.room.sourceRevision}:${p.room.timeline.revision}`; if (applied.current === key && !force) return;
     applied.current = key; suppression.current = Date.now() + 1800;
     const time = expectedPosition(p.room.timeline, p.offset.current); const actual = yt.getCurrentTime();
-    if (force || Math.abs(actual - time) > 1) yt.seekTo(time, true);
+    if (force || Math.abs(actual - time) > .35) yt.seekTo(time, true);
     yt.setPlaybackRate(1);
-    if (p.room.timeline.playing) yt.playVideo(); else yt.pauseVideo();
-    lastSample.current = { time, at: Date.now() };
+    if (p.room.timeline.playing) { startup.current.arm(yt.getDuration()); yt.playVideo(); }
+    else { startup.current.cancel(); yt.pauseVideo(); }
+    lastSample.current = { time: yt.getCurrentTime(), at: Date.now() };
   }
   useEffect(() => {
     if (!props.room.source || !container.current) return;
-    let disposed = false; ready.current = false; activated.current = false; applied.current = ''; setLoaded(false); setIssue(''); setNeedsClick(true);
+    let disposed = false; ready.current = false; activated.current = false; applied.current = ''; startup.current.cancel(); setLoaded(false); setIssue(''); setNeedsClick(true);
     const element = document.createElement('div'); container.current.replaceChildren(element);
     loadApi().then(() => {
       if (disposed) return;
       player.current = new window.YT.Player(element, { width: '100%', height: '100%', videoId: props.room.source!.videoId, playerVars: { controls: 1, playsinline: 1, origin: location.origin }, events: {
         onReady: () => { if (disposed) return; ready.current = true; setLoaded(true); },
-        onAutoplayBlocked: () => { if (disposed) return; setNeedsClick(true); status('needs-interaction'); },
+        onAutoplayBlocked: () => { if (disposed) return; startup.current.cancel(); setNeedsClick(true); status('needs-interaction'); },
         onError: (e: { data: number }) => { if (disposed) return; const errors: Record<number, string> = { 2: 'This video link is invalid.', 5: 'Your browser could not play this video.', 100: 'This video is unavailable or private.', 101: 'The creator does not allow this video to be embedded.', 150: 'The creator does not allow this video to be embedded.', 153: 'YouTube could not identify this website. Use its configured HTTP/HTTPS address and allow referrer headers.' }; setIssue(errors[e.data] || `YouTube playback error (${e.data}).`); status('error'); },
         onStateChange: (e: { data: number }) => {
           if (disposed) return; clearTimeout(stall.current);
           const p = latest.current; const me = p.room.members.find(m => m.id === p.memberId);
           if (e.data === 1 && !activated.current) { activated.current = true; setNeedsClick(false); status('ready'); suppression.current = Date.now() + 1800; apply(true); return; }
           if (e.data === 1 && activated.current) { setNeedsClick(false); if (me?.status !== 'ready' && me?.status !== 'waiting' && me?.status !== 'error') status('ready'); }
+          if (e.data === 0 || me?.status === 'waiting' || me?.status === 'error') startup.current.cancel();
           if (!activated.current || !p.online || Date.now() < suppression.current || me?.status === 'waiting' || me?.status === 'error') return;
           if (e.data === 3 && p.room.timeline.playing) stall.current = setTimeout(() => { status('buffering'); }, 1500);
           if (e.data === 1 && !p.room.timeline.playing && me?.status === 'ready') command('play');
@@ -53,6 +57,11 @@ export default function YouTube(props: Props) {
       const time = yt.getCurrentTime(); const duration = yt.getDuration(); p.onTime(time, duration); const now = Date.now();
       setDrift(time - expectedPosition(p.room.timeline, p.offset.current));
       const sample = lastSample.current; const state = yt.getPlayerState(); const me = p.room.members.find(m => m.id === p.memberId);
+      if (state === 1) {
+        const target = startup.current.observe(time, duration, expectedPosition(p.room.timeline, p.offset.current), activated.current && p.online && p.room.timeline.playing && me?.status === 'ready', now);
+        if (target !== null) { suppression.current = now + 1800; yt.seekTo(target, false); lastSample.current = { time: yt.getCurrentTime(), at: now }; return; }
+      }
+      if (!p.online || !p.room.timeline.playing || me?.status === 'waiting' || me?.status === 'error' || me?.status === 'needs-interaction') startup.current.cancel();
       if (activated.current && p.online && me?.status === 'ready' && now > suppression.current && sample.at && (state === 1 || state === 2)) {
         const natural = sample.time + (state === 1 ? (now - sample.at) / 1000 : 0);
         // Detect discontinuities from native YouTube seeking. No periodic corrective seeks:

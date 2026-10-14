@@ -11,7 +11,7 @@ export function useRoom(session: Session | null) {
       bestRtt = Infinity;
       setConnection(attempt ? 'reconnecting' : 'connecting');
       const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/socket`); socket.current = ws;
-      ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', ...session }));
+      ws.onopen = () => { ws.send(JSON.stringify({ type: 'hello', ...session })); ws.send(JSON.stringify({ type: 'ping', sent: Date.now() })); };
       ws.onmessage = event => {
         const message = JSON.parse(event.data);
         if (message.type === 'snapshot' && acceptSnapshot(current.current, message.room)) {

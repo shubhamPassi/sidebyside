@@ -5,7 +5,7 @@ Tested on Windows, Node.js 24.14.1, installed Google Chrome, against the product
 | Check | Result |
 | --- | --- |
 | `npm run build` | Passed: TypeScript check and Vite production bundle |
-| `npm test` | 14 passed, 0 failed, including the added Windows supervisor test |
+| `npm test` | 17 passed, 0 failed, including Windows supervisor and startup-delay recovery tests |
 | `npm run test:ui` | 1 comprehensive browser scenario passed, 0 failed; two independent browser contexts plus a third capacity check |
 | `npm audit --omit=dev` | 0 vulnerabilities reported |
 | Real YouTube smoke check | Official API loaded; player activated and played; reported playhead 0:04, duration 22:23; 0 page errors |
@@ -26,6 +26,12 @@ Browser screenshots are in `test-results/landing.png`, `room-empty.png`, `room-a
 - Actual Windows reboot/sign-in behavior (the installed hidden startup launcher was exercised directly).
 
 The app deliberately uses manual drift recovery instead of periodic corrective seeks, because the documented player API does not provide reliable ad lifecycle signals. Native seek detection is a position-discontinuity heuristic after activation; it is not a documented YouTube seek event and requires real-session validation around ads. Wait + Ready + Resync remains the recovery path.
+
+## Playback startup-delay fix
+
+A report of another device starting roughly one second late and remaining behind exposed a gap in the initial implementation: command-arrival compensation did not cover the player's later startup delay. The client now calibrates its clock immediately on connection, uses a 350 ms command alignment threshold and performs at most one bounded catch-up after stable playback following a shared revision. Waiting, autoplay blocks, changed duration, elapsed recovery windows and large ambiguous drift skip recovery. Continuous corrective seeking remains disabled.
+
+The browser regression introduces a full 1,000 ms startup delay into the second simulated player. It verifies drift below 350 ms after startup recovery and exactly one corrective seek, then checks that no repeated corrections follow. The full browser flow passed, all 17 unit/integration tests passed and the production build passed. Public HTTPS/WSS room verification passed again, and the public page was confirmed serving the updated asset bundle. These results demonstrate the simulated-delay fix; they do not measure the user's physical devices or establish ad synchronization.
 
 Rooms are ephemeral on a single long-running server; restarting erases rooms/history. Guest admission is direct through the private invite; there is no admission queue or ownership transfer. Production scaling and durable storage are not implemented.
 
