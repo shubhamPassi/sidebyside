@@ -5,8 +5,8 @@ Tested on Windows, Node.js 24.14.1, installed Google Chrome, against the product
 | Check | Result |
 | --- | --- |
 | `npm run build` | Passed: TypeScript check and Vite production bundle |
-| `npm test` | 24 passed, 0 failed, including invitation code, reconnect grace, half-open connection and heartbeat-liveness tests |
-| `npm run test:ui` | 3 browser scenarios passed, 0 failed: desktop flow, iPhone-mode sustained playback/reconnect, and code-based room entry |
+| `npm test` | 27 passed, 0 failed, including play preparation, invitation code, reconnect grace and heartbeat-liveness tests |
+| `npm run test:ui` | 4 browser scenarios passed, 0 failed: desktop flow, iPhone-mode playback/reconnect, code entry, and resync-before-play ordering |
 | `npm audit --omit=dev` | 0 vulnerabilities reported |
 | Real YouTube smoke check | Official API loaded; player activated and played; reported playhead 0:04, duration 22:23; 0 page errors |
 | Desktop/mobile visual review | Reviewed desktop room, active real-player room and 390px-wide room; mobile test confirms no horizontal page overflow |
@@ -60,6 +60,12 @@ All 21 unit/integration tests passed, including a 7.5-second interruption with a
 Eight-character, cryptographically generated, collision-checked room codes supplement the existing invite links. Tests cover formatting/case normalization, invalid inputs, two-seat capacity, creator locking/rotation, invalidated old codes, end/expiry index cleanup, HTTP origin validation and code-guess rate limiting. The browser scenario verifies home-page code entry, old-code rejection, locked-code rejection, successful joining after unlock and mobile layout without horizontal overflow. Desktop and mobile screenshots are retained locally in `test-results/invitation-code-room.png` and `test-results/invitation-code-mobile.png`.
 
 All 24 unit/integration tests, three browser scenarios and the production build passed. `verify-public.mjs` now joins by code through the actual HTTPS endpoint before verifying WSS controls, chat and a 7.5-second reconnect. That public check passed and cleaned up its temporary room. The new server was restarted to apply the feature, so previous rooms were cleared. Short codes have 40 bits of entropy and stricter entry rate limits; they are a different access path from the original 192-bit invitation tokens.
+
+## Resync before every shared start
+
+Play now uses a server-controlled preparation stage: timeline paused → align each player to the fixed room position → authenticated acknowledgements from every participant → start the playing timeline. Acknowledgements include the play request ID, source/timeline revision and measured position, which must be within 500 ms of the requested position. The server refuses stale/misaligned acknowledgements and cancels preparation on pause, seek, source change, unreadiness, disconnect or a 10-second deadline. Timeout leaves the room paused and marks missing viewers as needing interaction. The UI shows the alignment stage and uses the same sequence for a ready player's I’m ready button.
+
+Three added server tests verify ordering, both-party acknowledgement, repeated starts, stale/misaligned responses, deliberate pause cancellation, timeout, waiting, source change and disconnect. The fourth browser scenario starts one paused player at 20 seconds and the other at 5, with the shared room at 90 seconds, and delays the second seek by 1.5 seconds. It verifies neither player starts during the delay and each completed its seek to 90 seconds before its play call. All 27 unit/integration tests and four browser scenarios passed, as did the build and the updated public protocol check. Provider/device playback startup after the acknowledgement can still vary; this is sequencing verification with a simulated player, not proof of frame-perfect physical-device synchronization. The server restart cleared previous rooms.
 
 Rooms are ephemeral on a single long-running server; restarting erases rooms/history. Guest admission is direct through the private invite; there is no admission queue or ownership transfer. Production scaling and durable storage are not implemented.
 

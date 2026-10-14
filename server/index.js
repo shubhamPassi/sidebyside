@@ -9,6 +9,7 @@ export function createApp(options = {}) {
   const rooms = options.rooms || new Rooms(); const app = express(); const server = createServer(app);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 }); const clients = new Map(); const limits = new Map();
   const disconnectTimers = new Map(); const reconnectGraceMs = options.reconnectGraceMs ?? 10000;
+  const playTimers=new Map();
   const allowed = process.env.PUBLIC_ORIGIN?.split(',').map(x => x.trim());
   const validOrigin = (req) => { const origin = req.headers.origin; return origin && (allowed ? allowed.includes(origin) : [`http://${req.headers.host}`, `https://${req.headers.host}`].includes(origin)); };
   function rate(key, max, period = 60000) { const now = Date.now(); let v = limits.get(key); if (!v || now > v.until) { v = { count: 0, until: now + period }; limits.set(key, v); } if (++v.count > max) throw new Error('Too many requests. Please wait a moment.'); }
@@ -21,7 +22,10 @@ export function createApp(options = {}) {
   app.post('/api/rooms/join-code', (req, res) => {try{if(!validOrigin(req))throw new Error('Open the app from its configured web address.');rate(`http:${req.socket.remoteAddress}`,20);rate(`code:${req.socket.remoteAddress}`,10);const result=rooms.joinCode(req.body.code,req.body.nickname);res.json(credentials(result));broadcast(result.room);}catch(e){res.status(400).json({error:e.message});}});
   app.post('/api/rooms/:id/join', (req, res) => { try { if (!validOrigin(req)) throw new Error('Open the app from its configured web address.'); rate(`http:${req.socket.remoteAddress}`, 20); const result = rooms.join(req.params.id, req.body.invite, req.body.nickname); res.json(credentials(result)); broadcast(result.room); } catch (e) { res.status(400).json({ error: e.message }); } });
   function send(ws, data) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data)); }
-  function broadcast(room) { for (const [ws, info] of clients) if (info.room.id === room.id) { if (!room.members.includes(info.member)) { send(ws, { type: 'ended', error: 'Your access to this room was removed.' }); ws.close(4003); } else send(ws, { type: 'snapshot', room: rooms.snapshot(room) }); } }
+  function broadcast(room) {
+    const previous=playTimers.get(room.id);if(previous?.id!==room.pendingPlay?.id){clearTimeout(previous?.timer);playTimers.delete(room.id);if(room.pendingPlay){const id=room.pendingPlay.id;const timer=setTimeout(()=>{playTimers.delete(room.id);if(rooms.rooms.has(room.id)){rooms.expirePlay(room,id);broadcast(room);}},Math.max(0,room.pendingPlay.deadline-Date.now()));timer.unref();playTimers.set(room.id,{id,timer});}}
+    for (const [ws, info] of clients) if (info.room.id === room.id) { if (!room.members.includes(info.member)) { send(ws, { type: 'ended', error: 'Your access to this room was removed.' }); ws.close(4003); } else send(ws, { type: 'snapshot', room: rooms.snapshot(room) }); }
+  }
   server.on('upgrade', (req, socket, head) => { if (req.url !== '/socket' || !validOrigin(req)) { socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); socket.destroy(); return; } try { rate(`ws:${req.socket.remoteAddress}`, 60); } catch { socket.destroy(); return; } wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws)); });
   wss.on('connection', ws => {
     let alive = true; ws.on('pong', () => alive = true);
@@ -55,7 +59,7 @@ export function createApp(options = {}) {
   const cleanup = setInterval(() => { rooms.cleanup(); for (const [key, value] of limits) if (Date.now() > value.until) limits.delete(key); for (const [ws, info] of clients) if (!rooms.rooms.has(info.room.id)) { send(ws, { type: 'ended', error: 'This room expired.' }); ws.close(4003); } }, 60000); cleanup.unref();
   const dist = fileURLToPath(new URL('../dist', import.meta.url)); app.use(express.static(dist)); app.get('/{*path}', (_, res) => res.sendFile(path.join(dist, 'index.html')));
   app.use((err, _req, res, _next) => res.status(400).json({ error: 'Invalid request.' }));
-  return { app, server, rooms, close: () => { clearInterval(cleanup); for (const timer of disconnectTimers.values()) clearTimeout(timer); for (const ws of wss.clients) { clients.delete(ws); ws.terminate(); } wss.close(); server.close(); } };
+  return { app, server, rooms, close: () => { clearInterval(cleanup);for(const v of playTimers.values())clearTimeout(v.timer); for (const timer of disconnectTimers.values()) clearTimeout(timer); for (const ws of wss.clients) { clients.delete(ws); ws.terminate(); } wss.close(); server.close(); } };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { server } = createApp(); server.listen(Number(process.env.PORT) || 3001, process.env.BIND_HOST || '0.0.0.0', () => console.log(`Side by Side listening on http://localhost:${process.env.PORT || 3001}`));

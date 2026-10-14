@@ -12,6 +12,7 @@ export default function YouTube(props: Props) {
   const startup = useRef(new StartupAlignment());
   const seekResume = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const activationPending = useRef(false);
+  const alignment = useRef<{id:string;acked:boolean}|null>(null);
   const appleTouch = isAppleTouchDevice(navigator.userAgent, navigator.maxTouchPoints);
   const [copiedDiagnostics, setCopiedDiagnostics] = useState(false);
   const [diagnosticsCopyFailed, setDiagnosticsCopyFailed] = useState(false);
@@ -25,6 +26,8 @@ export default function YouTube(props: Props) {
     applied.current = key; suppression.current = Date.now() + 1800;
     trace('apply', { revision:p.room.timeline.revision, playing:p.room.timeline.playing, force });
     const time = expectedPosition(p.room.timeline, p.offset.current); const actual = yt.getCurrentTime();
+    if(p.room.pendingPlay){startup.current.cancel();alignment.current={id:p.room.pendingPlay.id,acked:false};yt.pauseVideo();yt.seekTo(p.room.pendingPlay.position,true);yt.pauseVideo();lastSample.current={time:yt.getCurrentTime(),at:Date.now()};trace('align-before-play',{position:p.room.pendingPlay.position,revision:p.room.timeline.revision});return;}
+    alignment.current=null;
     if (force || Math.abs(actual - time) > (appleTouch ? 1.5 : .35)) yt.seekTo(time, true);
     yt.setPlaybackRate(1);
     if (p.room.timeline.playing) { if (!appleTouch) startup.current.arm(yt.getDuration()); else startup.current.cancel(); yt.playVideo(); }
@@ -48,6 +51,7 @@ export default function YouTube(props: Props) {
           if (e.data === 1 && (!activated.current || activationPending.current)) { activated.current = true; activationPending.current = false; setNeedsClick(false); status('ready'); suppression.current = Date.now() + 1800; if (p.room.timeline.playing) { applied.current = ''; apply(); } else player.current?.pauseVideo(); return; }
           if (e.data === 1 && activated.current) { setNeedsClick(false); if (me?.status !== 'ready' && me?.status !== 'waiting' && me?.status !== 'error') status('ready'); }
           if (e.data === 0 || me?.status === 'waiting' || me?.status === 'error') startup.current.cancel();
+          if(p.room.pendingPlay){if(e.data===1)player.current?.pauseVideo();return;}
           if (!activated.current || !p.online || Date.now() < suppression.current || me?.status === 'waiting' || me?.status === 'error') return;
           if (e.data === 3 && p.room.timeline.playing) stall.current = setTimeout(() => { status('buffering'); }, 1500);
           if (e.data === 1 && !p.room.timeline.playing && me?.status === 'ready') command('play');
@@ -67,6 +71,7 @@ export default function YouTube(props: Props) {
       setDrift(time - expectedPosition(p.room.timeline, p.offset.current));
       const sample = lastSample.current; const state = yt.getPlayerState(); const me = p.room.members.find(m => m.id === p.memberId);
       trace('sample', { state, position:time, expected:expectedPosition(p.room.timeline,p.offset.current), revision:p.room.timeline.revision, playing:p.room.timeline.playing, online:p.online, status:me?.status || 'unknown' });
+      if(p.room.pendingPlay){const prep=alignment.current;if(prep?.id===p.room.pendingPlay.id&&!prep.acked&&p.online&&activated.current&&me?.status==='ready'&&[2,5].includes(state)&&Math.abs(time-p.room.pendingPlay.position)<=.5){prep.acked=true;trace('alignment-confirmed',{position:time,revision:p.room.timeline.revision});p.send({type:'aligned',playId:p.room.pendingPlay.id,sourceRevision:p.room.sourceRevision,revision:p.room.timeline.revision,position:time});}lastSample.current={time,at:now};return;}
       if (state === 1) {
         const target = startup.current.observe(time, duration, expectedPosition(p.room.timeline, p.offset.current), activated.current && p.online && p.room.timeline.playing && me?.status === 'ready', now);
         if (target !== null) {
@@ -101,7 +106,7 @@ export default function YouTube(props: Props) {
     }, 800); return () => clearInterval(interval);
   }, []);
   const me = props.room.members.find(m => m.id === props.memberId);
-  function activate() { const yt = player.current; if (!yt) return; if (activated.current && !needsClick && me?.status === 'ready') { status('ready'); return; } activationPending.current = true; startup.current.cancel(); suppression.current = Date.now() + 2500; status('preparing'); yt.playVideo(); }
+  function activate() { const yt = player.current; if (!yt) return; if (activated.current && !needsClick && me?.status === 'ready') { status('ready'); if(!props.room.timeline.playing && props.room.members.every(m=>m.online&&m.status==='ready'))command('play'); return; } activationPending.current = true; startup.current.cancel(); suppression.current = Date.now() + 2500; status('preparing'); yt.playVideo(); }
   async function copyDiagnostics() { try { await navigator.clipboard.writeText(JSON.stringify(playbackDiagnostics(),null,2)); setCopiedDiagnostics(true); setDiagnosticsCopyFailed(false); } catch { setDiagnosticsCopyFailed(true); } }
   return <>
     <div className="video-frame" ref={container} aria-label="Official YouTube player" />
