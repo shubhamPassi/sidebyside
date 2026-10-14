@@ -1,7 +1,7 @@
 export function normalizeInviteCode(value) {
-  if (typeof value !== 'string' || value.length > 32) throw new Error('Enter an 8-character invitation code.');
-  const code = value.replace(/[\s-]/g, '').toUpperCase();
-  if (!/^[A-HJ-NP-Z2-9]{8}$/.test(code)) throw new Error('Enter an 8-character invitation code, such as ABCD-2345.');
+  if (typeof value !== 'string' || value.length > 16) throw new Error('Enter a 4-digit invitation code.');
+  const code = value.trim();
+  if (!/^[0-9]{4}$/.test(code)) throw new Error('Enter a 4-digit invitation code, such as 0047.');
   return code;
 }
-export function formatInviteCode(value) { return `${value.slice(0,4)}-${value.slice(4)}`; }
+export function formatInviteCode(value) { return value; }

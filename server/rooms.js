@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { parseYouTube } from '../shared/youtube.js';
 import { normalizeInviteCode } from '../shared/invite-code.js';
 const token = () => randomBytes(24).toString('base64url');
@@ -6,7 +6,7 @@ const name = (v) => { if (typeof v !== 'string' || !v.trim() || v.trim().length 
 export const positionAt = (t, now) => t.position + (t.playing ? Math.max(0, now - t.at) / 1000 : 0);
 export class Rooms {
   constructor(now = Date.now) { this.now = now; this.rooms = new Map(); this.interruptions = new WeakMap(); this.codes = new Map(); this.playAcks = new WeakMap(); }
-  newCode() { const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let code; do {code=[...randomBytes(8)].map(byte=>alphabet[byte & 31]).join('');}while(this.codes.has(code));return code; }
+  newCode() { let code; do {code=String(randomInt(0,10000)).padStart(4,'0');}while(this.codes.has(code));return code; }
   deleteRoom(id) { const room=this.rooms.get(id); if(room)this.codes.delete(room.invitationCode);this.rooms.delete(id); }
   create(nickname) {
     if (this.rooms.size >= 1000) throw new Error('The server is busy. Please try again later.');

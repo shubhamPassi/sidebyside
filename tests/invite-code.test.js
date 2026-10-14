@@ -4,10 +4,10 @@ import { Rooms } from '../server/rooms.js';
 import { normalizeInviteCode, formatInviteCode } from '../shared/invite-code.js';
 import { createApp } from '../server/index.js';
 test('invitation codes are unique, normalized and capacity limited',()=>{
- const rooms=new Rooms();const first=rooms.create('Host');const second=rooms.create('Other');assert.notEqual(first.room.invitationCode,second.room.invitationCode);assert.match(first.room.invitationCode,/^[A-HJ-NP-Z2-9]{8}$/);
- const printed=formatInviteCode(first.room.invitationCode);assert.match(printed,/^.{4}-.{4}$/);assert.equal(normalizeInviteCode(printed.toLowerCase()),first.room.invitationCode);
+ const rooms=new Rooms();const first=rooms.create('Host');const second=rooms.create('Other');assert.notEqual(first.room.invitationCode,second.room.invitationCode);assert.match(first.room.invitationCode,/^[0-9]{4}$/);
+ const printed=formatInviteCode(first.room.invitationCode);assert.match(printed,/^[0-9]{4}$/);assert.equal(normalizeInviteCode(printed),first.room.invitationCode);assert.equal(normalizeInviteCode(' 0047 '),'0047');assert.equal(formatInviteCode('0047'),'0047');
  const joined=rooms.joinCode(` ${printed.toLowerCase()} `,'Friend');assert.equal(joined.room.id,first.room.id);assert.equal(joined.member.owner,false);assert.throws(()=>rooms.joinCode(printed,'Third'),/two people/);
- for(const code of ['1234','IIII-OOOO','ABCD/2345',null,'A'.repeat(33)])assert.throws(()=>normalizeInviteCode(code));
+ for(const code of ['123','12345','12a4','12-34',1234,null,'A'.repeat(33)])assert.throws(()=>normalizeInviteCode(code));
 });
 test('lock and rotation protect codes; end and expiry remove their lookup entries',()=>{
  let now=1000;const rooms=new Rooms(()=>now);const {room,member}=rooms.create('Host');member.online=true;let sequence=0;const cmd=type=>rooms.command(room,member,{type,eventId:`code-test-${sequence++}`});const oldCode=room.invitationCode;const oldInvite=room.invite;
