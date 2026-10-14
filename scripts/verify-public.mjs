@@ -12,13 +12,13 @@ try {
  const health=await fetch(origin+'/api/health',{signal:AbortSignal.timeout(15000)});assert.equal(health.status,200);assert.equal((await health.json()).ok,true);
  assert.equal((await post('/api/rooms',{nickname:'Origin test'},'https://unauthorized.example')).status,400);
  const created=await post('/api/rooms',{nickname:'Deployment check A'});assert.equal(created.status,200);sessions.push(created.body);owner=await connect(created.body);
- const joined=await post(`/api/rooms/${created.body.roomId}/join`,{nickname:'Deployment check B',invite:owner.room.invite});assert.equal(joined.status,200);sessions.push(joined.body);let friend=await connect(joined.body);
+ const joined=await post('/api/rooms/join-code',{nickname:'Deployment check B',code:owner.room.invitationCode.toLowerCase()});assert.equal(joined.status,200);sessions.push(joined.body);let friend=await connect(joined.body);
  send(owner,{type:'source',url:'https://youtu.be/M7lc1UVf-VE'});let room=await until(friend,r=>r.source);
  for(const client of [owner,friend])send(client,{type:'status',status:'ready',sourceRevision:room.sourceRevision});room=await until(friend,r=>r.members.every(m=>m.status==='ready'));
  send(friend,{type:'control',action:'seek',position:30,sourceRevision:room.sourceRevision,revision:room.timeline.revision});room=await until(friend,r=>r.timeline.position===30);
  send(owner,{type:'control',action:'play',sourceRevision:room.sourceRevision,revision:room.timeline.revision});room=await until(friend,r=>r.timeline.playing);
  send(friend,{type:'chat',text:'Public tunnel verification'});room=await until(friend,r=>r.chat.length>0);
  friend.ws.close();await new Promise(resolve=>friend.ws.once('close',resolve));await new Promise(resolve=>setTimeout(resolve,7500));friend=await connect(joined.body,true);assert.equal(friend.room.timeline.playing,true);assert.equal(friend.room.timeline.revision,room.timeline.revision);assert.equal(friend.room.chat[0].text,'Public tunnel verification');assert.ok(friend.room.timeline.position+(friend.room.serverNow-friend.room.timeline.at)/1000>=37.5);assert.equal(friend.room.members[1].status,'ready');
- console.log('PASS: public HTTPS, authorized origin, origin rejection, two-person join, WSS, shared seek/play, chat and reconnect recovery.');
+ console.log('PASS: public HTTPS, authorized origin, origin rejection, invitation-code join, WSS, shared seek/play, chat and reconnect recovery.');
  send(owner,{type:'end'});await owner.next('ended');owner=null;console.log('PASS: temporary verification room deleted.');
 }finally {if(owner?.ws.readyState===WebSocket.OPEN)send(owner,{type:'end'});for(const ws of sockets)ws.terminate();}

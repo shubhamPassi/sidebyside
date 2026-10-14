@@ -16,6 +16,8 @@ npm start
 
 Open **http://localhost:3001**. Create a room, choose a nickname, paste an embeddable YouTube video URL, and copy the invite. The friend opens the invite in another browser/device, chooses a nickname, and activates their player. Both press Ready, then either presses Play. Until your friend joins you can preview alone; a new join pauses the room while their player prepares.
 
+Each room also displays an **8-character invitation code** (for example `ABCD-2345`) with a Copy code button. Your friend can open the app's home page, choose **Join with code**, and enter their nickname and code. Codes accept lowercase, spaces and the displayed hyphen. Share codes privately: possession permits taking the second seat. Locking the invitation blocks both entry methods. **Replace link & code** rotates both; existing participant credentials continue working. Codes expire with the room and are deleted on room end/server restart. Codes use 40 bits of cryptographic randomness with collision checking, and code entry is limited to 10 attempts per minute per observed source address in addition to the ordinary HTTP limits. The existing long invite links retain their 192-bit tokens.
+
 For development, `npm run dev` serves the UI at http://localhost:5173 and proxies room traffic to port 3001. Stop the production server first to free port 3001.
 
 ## Friends on different networks

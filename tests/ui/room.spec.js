@@ -54,3 +54,14 @@ test('iPhone path confirms actual playback and stays playing beyond 15 seconds w
   const diag=await b.evaluate(()=>window.__watchDiagnostics());expect(diag.version).toBe('reconnect-grace-1');expect(diag.events.some(e=>e.event==='sample')).toBe(true);expect(JSON.stringify(diag)).not.toMatch(/credential|invite|memberId/);
  } finally {await desktop.close();await phone.close();}
 });
+
+test('join by code from home, rotate invalidates old code, and full/locked rooms explain failure',async({browser})=>{
+ const ownerCtx=await browser.newContext();const friendCtx=await browser.newContext();
+ try{
+  const a=await ownerCtx.newPage();const b=await friendCtx.newPage();await a.goto('/');await a.getByLabel('What should we call you?').fill('Code host');await a.getByRole('button',{name:'Create a private room'}).click();await expect(a.getByRole('region',{name:'Room invitation code'})).toBeVisible();const old=await a.locator('.invitation-code').innerText();expect(old).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+  await a.getByRole('button',{name:'Room options'}).click();await a.getByRole('button',{name:'Replace link & code',exact:true}).click();await expect(a.locator('.invitation-code')).not.toHaveText(old);const current=await a.locator('.invitation-code').innerText();
+  await b.goto('/');await b.getByRole('button',{name:'Join with code',exact:true}).click();await b.getByLabel('What should we call you?').fill('Code friend');await b.getByLabel('Invitation code',{exact:true}).fill(old);await b.getByRole('button',{name:'Join the room',exact:true}).click();await expect(b.getByRole('alert')).toContainText('invalid or has expired');
+  await a.getByRole('button',{name:'Room options'}).click();await a.getByRole('button',{name:'Lock invitation',exact:true}).click();await b.getByLabel('Invitation code',{exact:true}).fill(current.toLowerCase());await b.getByRole('button',{name:'Join the room',exact:true}).click();await expect(b.getByRole('alert')).toContainText('no longer available');
+  await a.getByRole('button',{name:'Room options'}).click();await a.getByRole('button',{name:'Unlock invitation',exact:true}).click();await b.getByRole('button',{name:'Join the room',exact:true}).click();await expect(a.getByText('Code friend',{exact:true})).toBeVisible();await expect(b.getByRole('heading',{name:'Let’s watch something.'})).toBeVisible();await b.setViewportSize({width:390,height:844});expect(await b.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await b.screenshot({path:'test-results/invitation-code-mobile.png',fullPage:true});await a.screenshot({path:'test-results/invitation-code-room.png',fullPage:true});
+ }finally{await ownerCtx.close();await friendCtx.close();}
+});

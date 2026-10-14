@@ -5,8 +5,8 @@ Tested on Windows, Node.js 24.14.1, installed Google Chrome, against the product
 | Check | Result |
 | --- | --- |
 | `npm run build` | Passed: TypeScript check and Vite production bundle |
-| `npm test` | 21 passed, 0 failed, including reconnect grace, half-open connection and heartbeat-liveness tests |
-| `npm run test:ui` | 2 browser scenarios passed, 0 failed: comprehensive desktop flow and an iPhone user-agent path with delayed startup and sustained playback |
+| `npm test` | 24 passed, 0 failed, including invitation code, reconnect grace, half-open connection and heartbeat-liveness tests |
+| `npm run test:ui` | 3 browser scenarios passed, 0 failed: desktop flow, iPhone-mode sustained playback/reconnect, and code-based room entry |
 | `npm audit --omit=dev` | 0 vulnerabilities reported |
 | Real YouTube smoke check | Official API loaded; player activated and played; reported playhead 0:04, duration 22:23; 0 page errors |
 | Desktop/mobile visual review | Reviewed desktop room, active real-player room and 390px-wide room; mobile test confirms no horizontal page overflow |
@@ -54,6 +54,12 @@ The supplied physical-iPhone trace (`iphone-readiness-1`) reports abnormal WebSo
 The server now gives disconnected participants 10 seconds to reconnect. A previously ready, authenticated, same-page player on the same source resumes its connection without changing the timeline; fresh pages, changed sources and expired grace require preparation. This also handles replacement of an old half-open connection whose closure the server has not observed yet. Existing deliberate pauses remain authoritative. Valid application messages count as heartbeat liveness so a missing protocol pong alone cannot terminate an otherwise active client. The client no longer force-seeks an unchanged playing revision on reconnection.
 
 All 21 unit/integration tests passed, including a 7.5-second interruption with a controlled clock, long-outage pause, intentional-pause preservation, stale-source rejection, half-open replacement and application keepalives with protocol pongs disabled. Both browser scenarios passed, including continued iPhone-mode playback and no automatic seeks after a simulated connection drop. Public HTTPS/WSS verification additionally exercises an actual 7.5-second disconnected interval through Cloudflare and checks unchanged playing revision, advancing authoritative position and restored readiness. The updated server was restarted; previous in-memory rooms were cleared. The user's actual network still needs a retry, and outages lasting over 10 seconds intentionally pause the room.
+
+## Invitation codes
+
+Eight-character, cryptographically generated, collision-checked room codes supplement the existing invite links. Tests cover formatting/case normalization, invalid inputs, two-seat capacity, creator locking/rotation, invalidated old codes, end/expiry index cleanup, HTTP origin validation and code-guess rate limiting. The browser scenario verifies home-page code entry, old-code rejection, locked-code rejection, successful joining after unlock and mobile layout without horizontal overflow. Desktop and mobile screenshots are retained locally in `test-results/invitation-code-room.png` and `test-results/invitation-code-mobile.png`.
+
+All 24 unit/integration tests, three browser scenarios and the production build passed. `verify-public.mjs` now joins by code through the actual HTTPS endpoint before verifying WSS controls, chat and a 7.5-second reconnect. That public check passed and cleaned up its temporary room. The new server was restarted to apply the feature, so previous rooms were cleared. Short codes have 40 bits of entropy and stricter entry rate limits; they are a different access path from the original 192-bit invitation tokens.
 
 Rooms are ephemeral on a single long-running server; restarting erases rooms/history. Guest admission is direct through the private invite; there is no admission queue or ownership transfer. Production scaling and durable storage are not implemented.
 
