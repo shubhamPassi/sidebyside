@@ -5,7 +5,7 @@ Tested on Windows, Node.js 24.14.1, installed Google Chrome, against the product
 | Check | Result |
 | --- | --- |
 | `npm run build` | Passed: TypeScript check and Vite production bundle |
-| `npm test` | 17 passed, 0 failed, including Windows supervisor and startup-delay recovery tests |
+| `npm test` | 21 passed, 0 failed, including reconnect grace, half-open connection and heartbeat-liveness tests |
 | `npm run test:ui` | 2 browser scenarios passed, 0 failed: comprehensive desktop flow and an iPhone user-agent path with delayed startup and sustained playback |
 | `npm audit --omit=dev` | 0 vulnerabilities reported |
 | Real YouTube smoke check | Official API loaded; player activated and played; reported playhead 0:04, duration 22:23; 0 page errors |
@@ -46,6 +46,14 @@ After a report of a second-device pause after 10–15 seconds, the device was id
 A second browser scenario uses an iPhone user-agent in Chromium with the simulated player (it is **not real iOS/WebKit**). It verifies that a one-second activation delay keeps the room unready until actual playback is reported, then both players stay playing for an 18-second observation window with no automatic phone seeks. Both browser scenarios, all 17 unit/integration tests and the build passed. The public bundle was updated. Physical-iPhone validation still requires a retry and, if the pause persists, its newly available local diagnostics trace.
 
 Diagnostics retain only 180 local events and are copied on demand. They include timing/state/revision/status/socket-close information, browser user-agent and page visibility; they exclude credentials, invitations, nicknames and chat. No trace is automatically sent to the server.
+
+### Evidence-based reconnect fix
+
+The supplied physical-iPhone trace (`iphone-readiness-1`) reports abnormal WebSocket closures with code 1006 at 06:52:04.084 UTC and 06:52:07.614 UTC. During the gap its player stays in state 1 with progressing playback. At 06:52:11.748 UTC it receives room revision 42 paused, then the application applies that pause. The corresponding Windows trace also receives revision 42 paused while previously playing normally. These observations identify connection-loss/rejoin handling as the pause path for this incident; they do not establish the cause of the underlying abnormal socket closures.
+
+The server now gives disconnected participants 10 seconds to reconnect. A previously ready, authenticated, same-page player on the same source resumes its connection without changing the timeline; fresh pages, changed sources and expired grace require preparation. This also handles replacement of an old half-open connection whose closure the server has not observed yet. Existing deliberate pauses remain authoritative. Valid application messages count as heartbeat liveness so a missing protocol pong alone cannot terminate an otherwise active client. The client no longer force-seeks an unchanged playing revision on reconnection.
+
+All 21 unit/integration tests passed, including a 7.5-second interruption with a controlled clock, long-outage pause, intentional-pause preservation, stale-source rejection, half-open replacement and application keepalives with protocol pongs disabled. Both browser scenarios passed, including continued iPhone-mode playback and no automatic seeks after a simulated connection drop. Public HTTPS/WSS verification additionally exercises an actual 7.5-second disconnected interval through Cloudflare and checks unchanged playing revision, advancing authoritative position and restored readiness. The updated server was restarted; previous in-memory rooms were cleared. The user's actual network still needs a retry, and outages lasting over 10 seconds intentionally pause the room.
 
 Rooms are ephemeral on a single long-running server; restarting erases rooms/history. Guest admission is direct through the private invite; there is no admission queue or ownership transfer. Production scaling and durable storage are not implemented.
 

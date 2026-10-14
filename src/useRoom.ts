@@ -12,7 +12,7 @@ export function useRoom(session: Session | null) {
       bestRtt = Infinity;
       setConnection(attempt ? 'reconnecting' : 'connecting');
       const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/socket`); socket.current = ws;
-      ws.onopen = () => { ws.send(JSON.stringify({ type: 'hello', ...session })); ws.send(JSON.stringify({ type: 'ping', sent: Date.now() })); };
+      ws.onopen = () => { trace('socket-open', {resume:!!current.current}); ws.send(JSON.stringify({ type: 'hello', ...session, resume: !!current.current, sourceRevision: current.current?.sourceRevision })); ws.send(JSON.stringify({ type: 'ping', sent: Date.now() })); };
       ws.onmessage = event => {
         const message = JSON.parse(event.data);
         if (message.type === 'snapshot' && acceptSnapshot(current.current, message.room)) {
@@ -26,7 +26,7 @@ export function useRoom(session: Session | null) {
         if (message.type === 'pong' && typeof message.sent === 'number') { const rtt = Date.now() - message.sent; if (rtt < bestRtt) { bestRtt = rtt; offset.current = message.serverNow - (message.sent + rtt / 2); } }
       };
       ws.onclose = event => { trace('socket-close', { code: event.code }); if (stopped) return; if (event.code === 4002 || event.code === 4003) { stopped = true; setConnection('ended'); setError(event.code === 4002 ? 'This room was opened in another tab. Return to that tab or rejoin here.' : 'This room is no longer available.'); return; } setConnection('reconnecting'); timer = setTimeout(connect, Math.min(1000 * 2 ** attempt++, 15000)); };
-      ws.onerror = () => ws.close();
+      ws.onerror = () => { trace('socket-error'); };
     }
     connect();
     const ping = setInterval(() => { if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: 'ping', sent: Date.now() })); }, 2500);

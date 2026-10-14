@@ -8,6 +8,7 @@ import { Rooms } from './rooms.js';
 export function createApp(options = {}) {
   const rooms = options.rooms || new Rooms(); const app = express(); const server = createServer(app);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 }); const clients = new Map(); const limits = new Map();
+  const disconnectTimers = new Map(); const reconnectGraceMs = options.reconnectGraceMs ?? 10000;
   const allowed = process.env.PUBLIC_ORIGIN?.split(',').map(x => x.trim());
   const validOrigin = (req) => { const origin = req.headers.origin; return origin && (allowed ? allowed.includes(origin) : [`http://${req.headers.host}`, `https://${req.headers.host}`].includes(origin)); };
   function rate(key, max, period = 60000) { const now = Date.now(); let v = limits.get(key); if (!v || now > v.until) { v = { count: 0, until: now + period }; limits.set(key, v); } if (++v.count > max) throw new Error('Too many requests. Please wait a moment.'); }
@@ -23,16 +24,17 @@ export function createApp(options = {}) {
   server.on('upgrade', (req, socket, head) => { if (req.url !== '/socket' || !validOrigin(req)) { socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); socket.destroy(); return; } try { rate(`ws:${req.socket.remoteAddress}`, 60); } catch { socket.destroy(); return; } wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws)); });
   wss.on('connection', ws => {
     let alive = true; ws.on('pong', () => alive = true);
-    const heartbeat = setInterval(() => { if (!alive) return ws.terminate(); alive = false; ws.ping(); }, 15000);
+    const heartbeat = setInterval(() => { if (!alive) return ws.terminate(); alive = false; ws.ping(); }, options.heartbeatIntervalMs ?? 15000);
     const authTimeout = setTimeout(() => { if (!clients.has(ws)) ws.close(4001); }, 5000);
     ws.on('message', raw => { let playbackCommand = false; try {
+      alive = true; // Application keepalives also prove liveness through proxies.
       rate(ws, 100, 10000); const msg = JSON.parse(raw.toString()); if (!msg || typeof msg !== 'object') throw new Error('Invalid message.');
       playbackCommand = msg.type === 'control';
       if (!clients.has(ws)) {
         if (msg.type !== 'hello') throw new Error('Join the room first.');
         const info = rooms.auth(msg.roomId, msg.credential);
         for (const [other, v] of clients) if (v.member.id === info.member.id) { clients.delete(other); other.close(4002, 'Connected in another tab'); }
-        clients.set(ws, info); clearTimeout(authTimeout); info.member.online = true; info.member.status = 'preparing'; info.room.touched = Date.now(); if (info.room.timeline.playing) rooms.pause(info.room, `${info.member.nickname} reconnected — preparing player`); broadcast(info.room); return;
+        clients.set(ws, info); clearTimeout(authTimeout); clearTimeout(disconnectTimers.get(info.member.id)); disconnectTimers.delete(info.member.id); rooms.reconnect(info.room, info.member, msg.resume === true, reconnectGraceMs, typeof msg.sourceRevision === 'number' ? msg.sourceRevision : -1); broadcast(info.room); return;
       }
       const info = clients.get(ws); rooms.auth(info.room.id, info.member.credential);
       if (msg.type === 'ping') { send(ws, { type: 'pong', sent: msg.sent, serverNow: Date.now() }); return; }
@@ -43,13 +45,16 @@ export function createApp(options = {}) {
       if (outcome === 'ended') { for (const [other, v] of clients) if (v.room.id === info.room.id) { send(other, { type: 'ended', error: 'The creator ended this room.' }); other.close(4003); } }
       else broadcast(info.room);
     } catch (e) { send(ws, { type: 'error', error: e.message }); const info = clients.get(ws); if (info && rooms.rooms.has(info.room.id)) send(ws, { type: 'snapshot', room: rooms.snapshot(info.room), force: playbackCommand }); } });
-    ws.on('close', () => { clearTimeout(heartbeat); clearTimeout(authTimeout); limits.delete(ws); const info = clients.get(ws); clients.delete(ws); if (info && rooms.rooms.has(info.room.id)) { rooms.disconnect(info.room, info.member); broadcast(info.room); } });
+    ws.on('close', () => { clearTimeout(heartbeat); clearTimeout(authTimeout); limits.delete(ws); const info = clients.get(ws); clients.delete(ws); if (info && rooms.rooms.has(info.room.id)) {
+      const interruption = rooms.disconnect(info.room, info.member); broadcast(info.room);
+      const timer = setTimeout(() => { disconnectTimers.delete(info.member.id); if (rooms.rooms.has(info.room.id)) { rooms.expireDisconnect(info.room, info.member, interruption); broadcast(info.room); } }, reconnectGraceMs); timer.unref(); disconnectTimers.set(info.member.id, timer);
+    } });
     ws.on('error', () => {});
   });
   const cleanup = setInterval(() => { rooms.cleanup(); for (const [key, value] of limits) if (Date.now() > value.until) limits.delete(key); for (const [ws, info] of clients) if (!rooms.rooms.has(info.room.id)) { send(ws, { type: 'ended', error: 'This room expired.' }); ws.close(4003); } }, 60000); cleanup.unref();
   const dist = fileURLToPath(new URL('../dist', import.meta.url)); app.use(express.static(dist)); app.get('/{*path}', (_, res) => res.sendFile(path.join(dist, 'index.html')));
   app.use((err, _req, res, _next) => res.status(400).json({ error: 'Invalid request.' }));
-  return { app, server, rooms, close: () => { clearInterval(cleanup); for (const ws of wss.clients) ws.terminate(); wss.close(); server.close(); } };
+  return { app, server, rooms, close: () => { clearInterval(cleanup); for (const timer of disconnectTimers.values()) clearTimeout(timer); for (const ws of wss.clients) { clients.delete(ws); ws.terminate(); } wss.close(); server.close(); } };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { server } = createApp(); server.listen(Number(process.env.PORT) || 3001, process.env.BIND_HOST || '0.0.0.0', () => console.log(`Side by Side listening on http://localhost:${process.env.PORT || 3001}`));

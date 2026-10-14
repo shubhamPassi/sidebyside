@@ -58,7 +58,7 @@ export default function YouTube(props: Props) {
     return () => { disposed = true; clearTimeout(stall.current); clearTimeout(seekResume.current); player.current?.destroy(); player.current = null; };
   }, [props.room.sourceRevision]);
   useEffect(() => { apply(); }, [props.room.timeline.revision, loaded, props.online]);
-  useEffect(() => { if (props.online && activated.current && ready.current) { status('ready'); apply(true); } }, [props.online]);
+  useEffect(() => { if (props.online && activated.current && ready.current) { status('ready'); apply(); } }, [props.online]);
   useEffect(() => { if (props.force) apply(true); }, [props.force]);
   useEffect(() => {
     const interval = setInterval(() => {

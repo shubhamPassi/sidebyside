@@ -4,7 +4,7 @@ const token = () => randomBytes(24).toString('base64url');
 const name = (v) => { if (typeof v !== 'string' || !v.trim() || v.trim().length > 24) throw new Error('Choose a nickname of 1–24 characters.'); return v.trim(); };
 export const positionAt = (t, now) => t.position + (t.playing ? Math.max(0, now - t.at) / 1000 : 0);
 export class Rooms {
-  constructor(now = Date.now) { this.now = now; this.rooms = new Map(); }
+  constructor(now = Date.now) { this.now = now; this.rooms = new Map(); this.interruptions = new WeakMap(); }
   create(nickname) {
     if (this.rooms.size >= 1000) throw new Error('The server is busy. Please try again later.');
     const room = { id: token(), invite: token(), created: this.now(), touched: this.now(), members: [], source: null, sourceRevision: 0, timeline: { revision: 0, position: 0, at: this.now(), playing: false, actor: 'Room created' }, chat: [], locked: false, seen: new Map() };
@@ -22,7 +22,17 @@ export class Rooms {
   auth(id, credential) { const room = this.get(id); const member = room.members.find(m => m.credential === credential); if (!member) throw new Error('Your room access is no longer valid.'); return { room, member }; }
   snapshot(room) { return { id: room.id, invite: room.invite, source: room.source, sourceRevision: room.sourceRevision, timeline: room.timeline, members: room.members.map(({ credential, ...m }) => m), chat: room.chat, locked: room.locked, serverNow: this.now() }; }
   pause(room, actor) { const t = room.timeline; room.timeline = { revision: t.revision + 1, position: positionAt(t, this.now()), at: this.now(), playing: false, actor }; }
-  disconnect(room, member) { member.online = false; member.status = 'disconnected'; room.touched = this.now(); if (room.timeline.playing) this.pause(room, `${member.nickname} disconnected — waiting`); }
+  disconnect(room, member) { const interruption = { at: this.now(), status: member.status, sourceRevision: room.sourceRevision }; this.interruptions.set(member, interruption); member.online = false; member.status = 'disconnected'; room.touched = this.now(); return interruption; }
+  reconnect(room, member, resume = false, graceMs = 10000, sourceRevision = room.sourceRevision) {
+    const interruption = this.interruptions.get(member);
+    const canResume = resume && sourceRevision === room.sourceRevision && ((member.online && member.status === 'ready') || (interruption && !interruption.expired && this.now() - interruption.at <= graceMs && interruption.status === 'ready' && interruption.sourceRevision === room.sourceRevision));
+    this.interruptions.delete(member); member.online = true; member.status = canResume ? 'ready' : 'preparing'; room.touched = this.now();
+    if (!canResume && room.timeline.playing) this.pause(room, `${member.nickname} reconnected — preparing player`);
+    return !!canResume;
+  }
+  expireDisconnect(room, member, interruption) {
+    if (!member.online && room.members.includes(member) && this.interruptions.get(member) === interruption) { interruption.expired = true; if (room.timeline.playing) this.pause(room, `${member.nickname} disconnected — waiting`); }
+  }
   command(room, member, msg) {
     room.touched = this.now();
     if (typeof msg.eventId !== 'string' || !/^[\w-]{1,80}$/.test(msg.eventId)) throw new Error('Invalid command.');
