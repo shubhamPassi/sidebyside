@@ -33,6 +33,12 @@ A report of another device starting roughly one second late and remaining behind
 
 The browser regression introduces a full 1,000 ms startup delay into the second simulated player. It verifies drift below 350 ms after startup recovery and exactly one corrective seek, then checks that no repeated corrections follow. The full browser flow passed, all 17 unit/integration tests passed and the production build passed. Public HTTPS/WSS room verification passed again, and the public page was confirmed serving the updated asset bundle. These results demonstrate the simulated-delay fix; they do not measure the user's physical devices or establish ad synchronization.
 
+### Asynchronous seek-pause follow-up
+
+A subsequent device report revealed another missing behavior in the test double: an IFrame seek can leave playback paused, including through an asynchronous pause callback during the suppression window. Startup correction now issues play after seeking, with one revision-guarded follow-up 250 ms later only if the player is still paused/cued. A new room revision, source change, wait, disconnection or lack of readiness prevents that follow-up. There is no repeated seek/retry loop. If the player remains paused after suppression, it reports needs-interaction and pauses the shared room rather than leaving only that viewer stopped.
+
+The browser regression now simulates both a one-second startup delay and a delayed pause after the corrective seek, verifies both players return to playing, and checks exactly one corrective seek. It also simulates a paused player with no state event during suppression; the room pauses for both viewers and reactivation restores readiness. Unit/integration tests remain 17 passing. The user's physical-device reproduction remains to be retried after both clients reload.
+
 Rooms are ephemeral on a single long-running server; restarting erases rooms/history. Guest admission is direct through the private invite; there is no admission queue or ownership transfer. Production scaling and durable storage are not implemented.
 
 ## Named tunnel deployment validation

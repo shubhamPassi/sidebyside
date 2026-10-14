@@ -9,12 +9,14 @@ export default function YouTube(props: Props) {
   const container = useRef<HTMLDivElement>(null); const player = useRef<Player | null>(null); const latest = useRef(props); latest.current = props;
   const suppression = useRef(0); const activated = useRef(false); const ready = useRef(false); const applied = useRef(''); const lastSample = useRef({ time: 0, at: 0 }); const stall = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const startup = useRef(new StartupAlignment());
+  const seekResume = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [loaded, setLoaded] = useState(false); const [issue, setIssue] = useState(''); const [needsClick, setNeedsClick] = useState(true); const [drift, setDrift] = useState(0);
   function status(value: string) { const p = latest.current; if (p.online) p.send({ type: 'status', status: value, sourceRevision: p.room.sourceRevision }); }
   function command(action: string, position?: number) { const p = latest.current; p.send({ type: 'control', action, position, revision: p.room.timeline.revision, sourceRevision: p.room.sourceRevision }); }
   function apply(force = false) {
     const p = latest.current; const yt = player.current; if (!yt || !ready.current || !activated.current || !p.online) return;
     const key = `${p.room.sourceRevision}:${p.room.timeline.revision}`; if (applied.current === key && !force) return;
+    clearTimeout(seekResume.current);
     applied.current = key; suppression.current = Date.now() + 1800;
     const time = expectedPosition(p.room.timeline, p.offset.current); const actual = yt.getCurrentTime();
     if (force || Math.abs(actual - time) > .35) yt.seekTo(time, true);
@@ -25,7 +27,7 @@ export default function YouTube(props: Props) {
   }
   useEffect(() => {
     if (!props.room.source || !container.current) return;
-    let disposed = false; ready.current = false; activated.current = false; applied.current = ''; startup.current.cancel(); setLoaded(false); setIssue(''); setNeedsClick(true);
+    let disposed = false; ready.current = false; activated.current = false; applied.current = ''; startup.current.cancel(); clearTimeout(seekResume.current); setLoaded(false); setIssue(''); setNeedsClick(true);
     const element = document.createElement('div'); container.current.replaceChildren(element);
     loadApi().then(() => {
       if (disposed) return;
@@ -46,7 +48,7 @@ export default function YouTube(props: Props) {
         }
       } });
     }).catch(e => { if (!disposed) { setIssue(e.message); status('error'); } });
-    return () => { disposed = true; clearTimeout(stall.current); player.current?.destroy(); player.current = null; };
+    return () => { disposed = true; clearTimeout(stall.current); clearTimeout(seekResume.current); player.current?.destroy(); player.current = null; };
   }, [props.room.sourceRevision]);
   useEffect(() => { apply(); }, [props.room.timeline.revision, loaded, props.online]);
   useEffect(() => { if (props.online && activated.current && ready.current) { status('ready'); apply(true); } }, [props.online]);
@@ -59,9 +61,28 @@ export default function YouTube(props: Props) {
       const sample = lastSample.current; const state = yt.getPlayerState(); const me = p.room.members.find(m => m.id === p.memberId);
       if (state === 1) {
         const target = startup.current.observe(time, duration, expectedPosition(p.room.timeline, p.offset.current), activated.current && p.online && p.room.timeline.playing && me?.status === 'ready', now);
-        if (target !== null) { suppression.current = now + 1800; yt.seekTo(target, false); lastSample.current = { time: yt.getCurrentTime(), at: now }; return; }
+        if (target !== null) {
+          suppression.current = now + 1800;
+          const revision = `${p.room.sourceRevision}:${p.room.timeline.revision}`;
+          yt.seekTo(target, false); yt.playVideo();
+          // Some IFrame players pause asynchronously while processing a seek.
+          // One guarded follow-up restores the intended playing state; no retry loop.
+          clearTimeout(seekResume.current);
+          seekResume.current = setTimeout(() => {
+            const latestProps = latest.current; const member = latestProps.room.members.find(m => m.id === latestProps.memberId);
+            if (player.current === yt && latestProps.online && latestProps.room.timeline.playing && member?.status === 'ready' && `${latestProps.room.sourceRevision}:${latestProps.room.timeline.revision}` === revision && [2, 5].includes(yt.getPlayerState())) {
+              suppression.current = Date.now() + 1800; yt.playVideo();
+            }
+          }, 250);
+          lastSample.current = { time: yt.getCurrentTime(), at: now }; return;
+        }
       }
       if (!p.online || !p.room.timeline.playing || me?.status === 'waiting' || me?.status === 'error' || me?.status === 'needs-interaction') startup.current.cancel();
+      // A pause emitted inside the feedback-suppression window must not leave
+      // this viewer silently paused while the room keeps playing.
+      if (activated.current && p.online && me?.status === 'ready' && p.room.timeline.playing && state === 2 && now > suppression.current) {
+        startup.current.cancel(); setNeedsClick(true); status('needs-interaction'); lastSample.current = { time, at: now }; return;
+      }
       if (activated.current && p.online && me?.status === 'ready' && now > suppression.current && sample.at && (state === 1 || state === 2)) {
         const natural = sample.time + (state === 1 ? (now - sample.at) / 1000 : 0);
         // Detect discontinuities from native YouTube seeking. No periodic corrective seeks:
